@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import {
   AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import {
-  DollarSign, TrendingUp, Users, ShoppingBag, RefreshCw, Calculator, Award, CreditCard, ChevronUp, TrendingDown
+  DollarSign, TrendingUp, Users, ShoppingBag, RefreshCw, Calculator, Award, CreditCard, ChevronUp, TrendingDown,
+  ShoppingCart, Package, Hammer, Truck, Ban, FileText, Percent, Eye, ArrowRight
 } from 'lucide-react';
 import { supabase } from '../supabase';
 import { calculateOrderTotalCost } from '../utils/financials';
+import { useOrganization } from '../OrganizationContext';
 
 const COLORS = ['#1e293b', '#334155', '#475569', '#64748b'];
 
@@ -35,8 +38,21 @@ interface OrderData {
   order_payments: OrderPayment[];
 }
 
+const getIcon = (status: string) => {
+  if (status === 'cancelled') return <Ban size={18} className="text-red-600" />;
+  return <ShoppingCart size={18} className="text-green-600" />;
+};
+
+const getBadgeColor = (status: string) => {
+  if (status === 'cancelled') return 'bg-red-100 text-red-700 border-red-200';
+  return 'bg-green-50 text-green-700 border-green-200';
+};
+
+
+
 const Dashboard: React.FC = () => {
-  const [exchangeRate, setExchangeRate] = useState<number>(36.5);
+  const { organizationId } = useOrganization();
+  const [exchangeRate, setExchangeRate] = useState<number>(0);
   const [dateRange, setDateRange] = useState<'today' | 'yesterday' | 'week' | 'month' | 'all' | 'custom'>('today'); // Step 9.10: added yesterday/custom
   const [customDateStart, setCustomDateStart] = useState<string>(new Date().toISOString().split('T')[0]);
   const [customDateEnd, setCustomDateEnd] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -52,6 +68,7 @@ const Dashboard: React.FC = () => {
     topEmployees: [] as { name: string, sales: number, count: number }[], // Step 9.8
     topTerminals: [] as { name: string, sales: number, count: number }[],  // Step 9.9
     salesChartData: [] as { name: string, sales: number, costos: number }[],
+    recentOrders: [] as any[], // Step 9.11: Recent Orders for Dashboard
     topCustomers: [
       { name: 'Maria Perez', visits: 12, spent: 450 },
       { name: 'Carlos Ruiz', visits: 10, spent: 380 },
@@ -59,13 +76,43 @@ const Dashboard: React.FC = () => {
     ]
   });
 
+
+
+  const [debugInfo, setDebugInfo] = useState<any>(null);
+
   useEffect(() => {
     fetchDashboardData();
-  }, [dateRange, topItemsMetric, customDateStart, customDateEnd]); // Refetch/Recalculate on filter change
+
+    // Real-time subscription for orders
+    const subscription = supabase
+      .channel('dashboard_orders')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+        fetchDashboardData();
+      })
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [dateRange, topItemsMetric, customDateStart, customDateEnd, organizationId]); // Step 9.10: Re-fetch on filter change or org change
 
   const fetchDashboardData = async () => {
     setIsLoading(true);
     try {
+      // Fetch Exchange Rate
+      if (organizationId) {
+        const { data: settings } = await supabase
+          .from('app_settings')
+          .select('value')
+          .eq('organization_id', organizationId)
+          .eq('key', 'exchange_rate')
+          .single();
+
+        if (settings) {
+          setExchangeRate(Number(settings.value));
+        }
+      }
+
       // 1. Calculate Date Range (Step 9.10)
       let startDate = new Date();
       startDate.setHours(0, 0, 0, 0);
@@ -75,6 +122,10 @@ const Dashboard: React.FC = () => {
         startDate.setDate(startDate.getDate() - 1);
         endDate = new Date(startDate);
         endDate.setHours(23, 59, 59, 999);
+      } else if (dateRange === 'today') {
+        // Explicitly set to midnight of current day
+        startDate.setHours(0, 0, 0, 0);
+        endDate = null; // Ensure no upper limit for 'today' to catch real-time sales
       } else if (dateRange === 'week') {
         const day = startDate.getDay();
         const diff = startDate.getDate() - day + (day === 0 ? -6 : 1);
@@ -90,7 +141,22 @@ const Dashboard: React.FC = () => {
         endDate.setHours(23, 59, 59, 999);
       }
 
-      // 1. FETCH COLLECTED SALES (Step 9.1 & 9.2: Only non-draft, non-cancelled) with DATE FILTER
+      // 1. Fetch Terminals Map (for names)
+      let terminalsMap: Record<string, string> = {};
+      if (organizationId) {
+        const { data: terms } = await supabase
+          .from('terminals')
+          .select('id, name')
+          .eq('organization_id', organizationId);
+
+        if (terms) {
+          terms.forEach(t => { terminalsMap[t.id] = t.name; });
+        }
+      }
+
+      // 2. FETCH COLLECTED SALES (Step 9.1 & 9.2: Only non-draft, non-cancelled) with DATE FILTER
+      if (!organizationId) return;
+
       let query = supabase
         .from('orders')
         .select(`
@@ -105,14 +171,16 @@ const Dashboard: React.FC = () => {
             unit_price,
             unit_cost,
             modifiers,
-            products (cost_price, name)
+            products (base_cost, name)
           ),
           order_payments (
             amount
           )
         `)
+        .eq('organization_id', organizationId)
         .neq('status', 'draft')
         .neq('status', 'cancelled')
+        .order('created_at', { ascending: false }) // Validate order for recent list
         .gte('created_at', startDate.toISOString());
 
       if (endDate) {
@@ -125,6 +193,18 @@ const Dashboard: React.FC = () => {
 
       const orders = (data as unknown) as any[];
 
+      // Update Debug Info
+      setDebugInfo({
+        organizationId,
+        dateRange,
+        startDate: startDate.toISOString(),
+        endDate: endDate ? endDate.toISOString() : 'NOW',
+        ordersFound: orders.length,
+        error: ordersError
+      });
+
+
+
       // Calculate Metrics
       let totalGross = 0;
       let totalCost = 0;
@@ -135,16 +215,17 @@ const Dashboard: React.FC = () => {
 
       orders?.forEach(order => {
         // Step 9.2: Gross Income must match collected funds
+        // CHANGE: Now using total order value to match History page logic, regardless of payment status
         const orderPaymentsSum = order.order_payments?.reduce((sum: number, p: any) => sum + Number(p.amount), 0) || 0;
 
-        totalGross += orderPaymentsSum;
+        totalGross += Number(order.total || 0); // User Request: Match History logic (Total Value)
         totalReceipts++;
 
         // Step 9.3: Total Cost Calculation using Utility
-        // We calculate cost based on snapshot 'unit_cost' if available, otherwise current 'products.cost_price'
+        // We calculate cost based on snapshot 'unit_cost' if available, otherwise current 'products.base_cost'
         const mappedItems = order.order_items?.map((item: any) => ({
           ...item,
-          unit_cost: item.unit_cost || item.products?.cost_price || 0
+          unit_cost: item.unit_cost || item.products?.base_cost || 0
         })) || [];
 
         const orderCost = calculateOrderTotalCost(mappedItems);
@@ -195,11 +276,15 @@ const Dashboard: React.FC = () => {
 
       // Sort Top Terminals
       const sortedTerminals = Object.entries(terminalStats)
-        .map(([id, stat]) => ({ name: id === 'Unknown' ? 'Sin Caja' : `Caja ${id.substring(0, 4)}`, sales: stat.sales, count: stat.count }))
+        .map(([id, stat]) => ({
+          name: terminalsMap[id] || (id === 'Unknown' ? 'Sin Caja' : `Caja ${id.substring(0, 4)}`),
+          sales: stat.sales,
+          count: stat.count
+        }))
         .sort((a, b) => b.sales - a.sales)
         .slice(0, 5);
 
-            // Build Sales Chart Data from real orders
+      // Build Sales Chart Data from real orders
       const dailyStats: Record<string, { sales: number, cost: number }> = {};
       orders?.forEach(order => {
         const dateKey = new Date(order.created_at).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
@@ -207,13 +292,14 @@ const Dashboard: React.FC = () => {
         const orderPayments = order.order_payments?.reduce((s: number, p: any) => s + Number(p.amount), 0) || 0;
         const mappedCostItems = order.order_items?.map((item: any) => ({
           ...item,
-          unit_cost: item.unit_cost || item.products?.cost_price || 0
+          unit_cost: item.unit_cost || item.products?.base_cost || 0
         })) || [];
         dailyStats[dateKey].sales += orderPayments;
         dailyStats[dateKey].cost += calculateOrderTotalCost(mappedCostItems);
       });
       const salesChartData = Object.entries(dailyStats)
         .map(([name, d]) => ({ name, sales: Math.round(d.sales * 100) / 100, costos: Math.round(d.cost * 100) / 100 }));
+
 
       setStats(prev => ({
         ...prev,
@@ -225,11 +311,17 @@ const Dashboard: React.FC = () => {
         topItems: sortedItems,
         topEmployees: sortedEmployees,
         topTerminals: sortedTerminals,
-        salesChartData: salesChartData
+        salesChartData: salesChartData,
+        recentOrders: orders.slice(0, 10) // Store top 10 recent orders
       }));
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching dashboard data:', error);
+      setDebugInfo({
+        organizationId,
+        dateRange,
+        error: error.message || error
+      });
     } finally {
       setIsLoading(false);
     }
@@ -246,6 +338,16 @@ const Dashboard: React.FC = () => {
 
   return (
     <div className="p-6 h-full overflow-y-auto bg-slate-50/50">
+      {/* TEMPORARY DEBUG BANNER */}
+      <div className="bg-red-50 border border-red-200 p-2 mb-4 rounded text-xs text-red-800 flex flex-wrap gap-4 font-mono">
+        <span>Org: {organizationId || 'None'}</span>
+        <span>Rango: {dateRange}</span>
+        <span>Start: {debugInfo?.startDate || 'N/A'}</span>
+        <span>End: {debugInfo?.endDate || 'N/A'}</span>
+        <span>Orders: {debugInfo?.ordersFound ?? '?'}</span>
+        {debugInfo?.error && <span className="font-bold">Error: {JSON.stringify(debugInfo.error)}</span>}
+      </div>
+
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div className="text-left">
           <div className="flex items-center gap-2 mb-1">
@@ -296,13 +398,17 @@ const Dashboard: React.FC = () => {
               <RefreshCw size={20} />
             </div>
             <div className="text-left">
-              <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest leading-none mb-1.5">Tasa del Día</p>
+              <Link to="/settings" className="flex items-center gap-1 group/link">
+                <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest leading-none mb-1.5 group-hover/link:text-brand-500 transition-colors">Tasa del Día</p>
+                <ArrowRight size={10} className="text-slate-300 group-hover/link:text-brand-500 transition-colors opacity-0 group-hover/link:opacity-100" />
+              </Link>
               <div className="flex items-center gap-2">
                 <input
                   type="number"
                   value={exchangeRate}
-                  onChange={(e) => setExchangeRate(parseFloat(e.target.value))}
-                  className="w-20 bg-transparent border-b border-slate-100 text-lg font-black text-slate-900 focus:outline-none focus:border-brand-500 text-right transition-colors"
+                  readOnly
+                  disabled
+                  className="w-20 bg-transparent border-b border-transparent text-lg font-black text-slate-900 focus:outline-none text-right cursor-not-allowed opacity-70"
                 />
                 <span className="text-slate-400 text-xs font-black">Bs/$</span>
               </div>
@@ -312,30 +418,49 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-        {[
-          { title: "Ingreso Bruto", value: `$${stats.grossIncome.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, icon: DollarSign, color: "text-emerald-600", bg: "bg-emerald-50" },
-          { title: "Costo Operativo", value: `$${stats.totalCost.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, icon: TrendingDown, color: "text-rose-600", bg: "bg-rose-50" },
-          { title: "Ganancia Neta", value: `$${stats.netProfit.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, icon: TrendingUp, color: "text-blue-600", bg: "bg-blue-50" },
-          // Step 9.5: Restored Receipts Card
-          { title: "Recibos (Volumen)", value: stats.receiptsCount.toString(), icon: ShoppingBag, color: "text-amber-600", bg: "bg-amber-50" },
-          { title: "Margen Promedio", value: `${stats.averageMargin}%`, icon: Calculator, color: "text-purple-600", bg: "bg-purple-50" }, // Step 9.6 Renamed
-        ].map((card, idx) => (
-          <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 text-left transition-all hover:shadow-lg relative overflow-hidden group">
-            <div className={`absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity ${card.color}`}>
-              <card.icon size={80} />
-            </div>
-            <div className="flex justify-between items-start relative z-10">
-              <div>
-                <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-1">{card.title}</p>
-                <h3 className="text-2xl font-black text-slate-900">{card.value}</h3>
-              </div>
-              <div className={`p-2.5 rounded-xl ${card.bg} ${card.color} border border-current opacity-20`}>
-                <card.icon size={18} />
-              </div>
-            </div>
+      {/* KPI Cards - Refactored to match History Styles */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        {/* Ingresos */}
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><DollarSign size={20} /></div>
+            <span className="text-xs font-bold text-slate-500 uppercase">Ingresos</span>
           </div>
-        ))}
+          <div className="text-2xl font-black text-slate-800">${stats.grossIncome.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+          <div className="text-xs text-slate-400 mt-1">{stats.receiptsCount} ventas</div>
+        </div>
+
+        {/* Costos */}
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-slate-50 text-slate-600 rounded-lg"><TrendingDown size={20} /></div>
+            <span className="text-xs font-bold text-slate-500 uppercase">Costos Operativos</span>
+          </div>
+          <div className="text-2xl font-black text-slate-800">${stats.totalCost.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+          <div className="text-[10px] text-slate-400 mt-1 uppercase font-bold">Base + Extras</div>
+        </div>
+
+        {/* Ganancia Neta */}
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-green-50 text-green-600 rounded-lg"><TrendingUp size={20} /></div>
+            <span className="text-xs font-bold text-slate-500 uppercase">Ganancia Neta</span>
+          </div>
+          <div className={`text-2xl font-black ${stats.netProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>${stats.netProfit.toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+          <div className="text-xs text-slate-400 mt-1">Real (Ingreso - Costo)</div>
+        </div>
+
+        {/* Margen */}
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="p-2 bg-purple-50 text-purple-600 rounded-lg"><Percent size={20} /></div>
+            <span className="text-xs font-bold text-slate-500 uppercase">Margen Promedio</span>
+          </div>
+          <div className="text-2xl font-black text-slate-800">{stats.averageMargin}%</div>
+          <div className="w-full bg-slate-100 h-1.5 rounded-full mt-2 overflow-hidden">
+            <div className="bg-purple-500 h-full rounded-full" style={{ width: `${Math.max(0, Math.min(100, stats.averageMargin))}%` }}></div>
+          </div>
+        </div>
       </div>
 
       {/* Main Charts */}
@@ -428,6 +553,57 @@ const Dashboard: React.FC = () => {
         </div>
       </div>
 
+
+      {/* Recent Transactions Table */}
+      <h3 className="text-lg font-bold text-slate-800 mb-4 px-1">Últimas Transacciones</h3>
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden mb-8">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-slate-50 text-slate-500 uppercase text-xs font-semibold border-b border-slate-200">
+              <tr>
+                <th className="px-6 py-4">Evento</th>
+                <th className="px-6 py-4">Descripción</th>
+                <th className="px-6 py-4">Referencia</th>
+                <th className="px-6 py-4">Total</th>
+                <th className="px-6 py-4">Fecha</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {stats.recentOrders && stats.recentOrders.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-8 text-center text-slate-400 italic">
+                    No hay transacciones recientes en este periodo.
+                  </td>
+                </tr>
+              ) : (
+                stats.recentOrders && stats.recentOrders.map((order) => (
+                  <tr key={order.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-4">
+                      <span className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-bold border ${getBadgeColor(order.status)}`}>
+                        {getIcon(order.status)}
+                        VENTA
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-slate-800 text-sm font-medium">Venta Completada POS</td>
+                    <td className="px-6 py-4">
+                      <span className="font-mono text-xs font-bold text-slate-500 bg-slate-100 px-2 py-1 rounded border border-slate-200">
+                        #{order.id.slice(0, 8)}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-slate-800 font-bold">
+                      ${order.total.toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 text-slate-500 text-xs">
+                      {new Date(order.created_at).toLocaleString()}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {/* Bottom Grid: Employees & Terminals (Step 9.8 & 9.9) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 text-left">
@@ -504,6 +680,8 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
       </div>
+
+
     </div>
   );
 };

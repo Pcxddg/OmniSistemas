@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Filter, AlertTriangle, FileText, Settings, RefreshCw, ExternalLink, Eye, X, ArrowRight, ShoppingCart, Truck, Hammer, Package, Ban, TrendingUp, TrendingDown, DollarSign, Percent, ShieldCheck } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useAuth } from '../AuthContext';
+import { useOrganization } from '../OrganizationContext';
 import { calculateLineItemCost, calculateOrderTotalCost } from '../utils/financials';
 
 // Enhanced Log Structure
@@ -43,6 +44,7 @@ const getBadgeColor = (type: string) => {
 
 const History: React.FC = () => {
    const { user } = useAuth();
+   const { organizationId } = useOrganization();
    const [events, setEvents] = useState<HistoryEvent[]>([]);
    const [loading, setLoading] = useState(true);
    const [selectedEvent, setSelectedEvent] = useState<HistoryEvent | null>(null);
@@ -56,9 +58,12 @@ const History: React.FC = () => {
       setLoading(true);
       try {
          // Fetch Orders
+         if (!organizationId) return;
+
          const { data: orders, error: orderError } = await supabase
             .from('orders')
             .select('*, order_items(*, products(name))')
+            .eq('organization_id', organizationId)
             .order('created_at', { ascending: false });
 
          if (orderError) throw orderError;
@@ -184,7 +189,8 @@ const History: React.FC = () => {
             action: 'cancel',
             user_id: user?.id || 'unknown',
             old_value: { status: currentOrder.status, total: order.total },
-            new_value: { status: 'cancelled', reason: 'Cancelado manualmente desde Historial' }
+            new_value: { status: 'cancelled', reason: 'Cancelado manualmente desde Historial' },
+            organization_id: organizationId
          }]);
 
          alert("Orden cancelada e inventario revertido correctamente.");

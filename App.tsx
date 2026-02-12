@@ -10,15 +10,16 @@ import SettingsPage from './pages/Settings';
 import Kitchen from './pages/Kitchen';
 import Login from './pages/Login';
 import { AuthProvider, useAuth } from './AuthContext';
+import { OrganizationProvider, useOrganization } from './OrganizationContext';
 import { HashRouter, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, ShoppingCart, Package, Users, Settings as SettingsIcon, History, Menu, DollarSign, Archive, ChefHat, LogOut } from 'lucide-react';
+import { LayoutDashboard, ShoppingCart, Package, Users, Settings as SettingsIcon, History, Menu, DollarSign, Archive, ChefHat, LogOut, Building2 } from 'lucide-react';
 
 const SidebarItem = ({ to, icon: Icon, label, active }: { to: string, icon: any, label: string, active: boolean }) => (
   <Link
     to={to}
     className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 mb-1 ${active
-        ? 'bg-slate-800 text-white border-r-4 border-slate-400'
-        : 'text-slate-500 hover:bg-slate-800/20 hover:text-slate-200'
+      ? 'bg-slate-800 text-white border-r-4 border-slate-400'
+      : 'text-slate-500 hover:bg-slate-800/20 hover:text-slate-200'
       }`}
   >
     <Icon size={20} />
@@ -30,6 +31,7 @@ const Layout = ({ children }: { children?: React.ReactNode }) => {
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { user, signOut } = useAuth();
+  const { currentOrg } = useOrganization();
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
@@ -43,7 +45,7 @@ const Layout = ({ children }: { children?: React.ReactNode }) => {
 
           <nav className="h-[calc(100vh-180px)] overflow-y-auto scrollbar-hide">
             <p className="text-xs font-bold text-slate-500 uppercase mb-4 px-4">Menu Principal</p>
-            <SidebarItem to="/" icon={LayoutDashboard} label="Dashboard" active={location.pathname === '/'} />
+            <SidebarItem to="/" icon={LayoutDashboard} label="Resultados" active={location.pathname === '/'} />
             <SidebarItem to="/pos" icon={ShoppingCart} label="Ventas POS" active={location.pathname === '/pos'} />
             <SidebarItem to="/kitchen" icon={ChefHat} label="Cocina (KDS)" active={location.pathname === '/kitchen'} />
             <SidebarItem to="/products" icon={Archive} label="Catálogo" active={location.pathname === '/products'} />
@@ -65,7 +67,7 @@ const Layout = ({ children }: { children?: React.ReactNode }) => {
             </div>
             <div className="overflow-hidden flex-1">
               <p className="text-sm font-medium text-white truncate">{user?.email || 'Admin User'}</p>
-              <p className="text-xs text-slate-400 truncate">Sucursal Principal</p>
+              <p className="text-xs text-slate-400 truncate">{currentOrg?.name || 'Sin organización'}</p>
             </div>
           </div>
           <button
@@ -102,10 +104,59 @@ const Layout = ({ children }: { children?: React.ReactNode }) => {
   );
 };
 
-const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { session, loading } = useAuth();
+const OnboardingScreen = () => {
+  const { createOrganization } = useOrganization();
+  const [name, setName] = useState('');
+  const [creating, setCreating] = useState(false);
 
-  if (loading) {
+  const handleCreate = async () => {
+    if (!name.trim()) return;
+    setCreating(true);
+    await createOrganization(name.trim());
+    setCreating(false);
+  };
+
+  return (
+    <div className="h-screen w-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+      <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full mx-4">
+        <div className="text-center mb-6">
+          <div className="w-16 h-16 rounded-2xl bg-brand-500 flex items-center justify-center mx-auto mb-4">
+            <Building2 size={32} className="text-white" />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-900">¡Bienvenido a OmniPOS!</h1>
+          <p className="text-slate-500 mt-2">Crea tu negocio para comenzar</p>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Nombre del Negocio</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Ej: Mi Restaurante"
+              className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
+              onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+            />
+          </div>
+          <button
+            onClick={handleCreate}
+            disabled={creating || !name.trim()}
+            className="w-full py-3 bg-brand-600 hover:bg-brand-700 text-white rounded-lg font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {creating ? 'Creando...' : 'Crear mi Negocio'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+  const { session, loading: authLoading } = useAuth();
+  const { currentOrg, loading: orgLoading } = useOrganization();
+
+  if (authLoading || orgLoading) {
     return (
       <div className="h-screen w-screen flex items-center justify-center bg-slate-900">
         <div className="w-12 h-12 border-4 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
@@ -117,29 +168,36 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     return <Navigate to="/login" replace />;
   }
 
+  // User is logged in but has no organization — show onboarding
+  if (!currentOrg) {
+    return <OnboardingScreen />;
+  }
+
   return <Layout>{children}</Layout>;
 };
 
 const App: React.FC = () => {
   return (
     <AuthProvider>
-      <HashRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
+      <OrganizationProvider>
+        <HashRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
 
-          <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-          <Route path="/pos" element={<ProtectedRoute><POS /></ProtectedRoute>} />
-          <Route path="/kitchen" element={<ProtectedRoute><Kitchen /></ProtectedRoute>} />
-          <Route path="/products" element={<ProtectedRoute><Products /></ProtectedRoute>} />
-          <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
-          <Route path="/cash" element={<ProtectedRoute><CashRegister /></ProtectedRoute>} />
-          <Route path="/suppliers" element={<ProtectedRoute><Suppliers /></ProtectedRoute>} />
-          <Route path="/history" element={<ProtectedRoute><HistoryPage /></ProtectedRoute>} />
-          <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+            <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+            <Route path="/pos" element={<ProtectedRoute><POS /></ProtectedRoute>} />
+            <Route path="/kitchen" element={<ProtectedRoute><Kitchen /></ProtectedRoute>} />
+            <Route path="/products" element={<ProtectedRoute><Products /></ProtectedRoute>} />
+            <Route path="/inventory" element={<ProtectedRoute><Inventory /></ProtectedRoute>} />
+            <Route path="/cash" element={<ProtectedRoute><CashRegister /></ProtectedRoute>} />
+            <Route path="/suppliers" element={<ProtectedRoute><Suppliers /></ProtectedRoute>} />
+            <Route path="/history" element={<ProtectedRoute><HistoryPage /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
 
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </HashRouter>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </HashRouter>
+      </OrganizationProvider>
     </AuthProvider>
   );
 };

@@ -3,6 +3,7 @@ import { Package, Hammer, Search, AlertCircle, Plus, X, ClipboardCheck, UserChec
 import { InventoryAdjustmentType, Product, ProductType, InventoryMovement, ProductionOrder } from '../types';
 import { supabase } from '../supabase';
 import { useAuth } from '../AuthContext';
+import { useOrganization } from '../OrganizationContext';
 
 interface InventoryItem extends Product {
   dailyConsumption: number; // Configurable or calculated field
@@ -21,6 +22,7 @@ interface MovementLog {
 }
 const Inventory: React.FC = () => {
   const { user } = useAuth();
+  const { organizationId } = useOrganization();
   const [activeTab, setActiveTab] = useState<'inventory' | 'production'>('inventory');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -201,7 +203,8 @@ const Inventory: React.FC = () => {
           product_name: selectedItem.name,
           adjusted_by: user?.email || 'unknown'
         },
-        old_value: { stock_before: selectedItem.stock }
+        old_value: { stock_before: selectedItem.stock },
+        organization_id: organizationId
       }]);
 
       alert("Ajuste registrado correctamente.");
@@ -347,7 +350,8 @@ const Inventory: React.FC = () => {
           unit_cost: finalUnitCost,
           total_cost: finalUnitCost * selectedOrder.quantity,
           confirmed_at: new Date().toISOString()
-        }
+        },
+        organization_id: organizationId
       }]);
 
       alert("Producción registrada y stock actualizado.");
@@ -376,7 +380,8 @@ const Inventory: React.FC = () => {
         product_id: prod.id,
         quantity: newProductionQty,
         status: 'draft',
-        created_at: new Date().toISOString()
+        created_at: new Date().toISOString(),
+        organization_id: organizationId
       });
 
       if (error) throw error;

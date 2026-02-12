@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Package, Folder, Tag, Plus, Search, Edit2, Trash2, X, Save, AlertCircle, ChefHat, Layers, Link as LinkIcon, DollarSign, ArrowRight, Layout, CheckCircle, Smartphone, CreditCard, ClipboardList, Grid, Banknote, List } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useAuth } from '../AuthContext';
+import { useOrganization } from '../OrganizationContext';
 import { Product, CategoryConfig, ProductType, Modifier } from '../types';
 
 const Products: React.FC = () => {
   const { user } = useAuth();
+  const { organizationId } = useOrganization();
   const [activeTab, setActiveTab] = useState<'articles' | 'categories' | 'modifiers'>('articles');
 
   // --- CATEGORIES STATE ---
@@ -153,7 +155,7 @@ const Products: React.FC = () => {
       const { error } = await supabase.from('modifiers').update(modifierData).eq('id', editingModifier.id);
       if (error) console.error('Error updating modifier:', error);
     } else {
-      const { error } = await supabase.from('modifiers').insert([modifierData]);
+      const { error } = await supabase.from('modifiers').insert([{ ...modifierData, organization_id: organizationId }]);
       if (error) console.error('Error creating modifier:', error);
     }
     fetchModifiers();
@@ -193,7 +195,7 @@ const Products: React.FC = () => {
     } else {
       const { error } = await supabase
         .from('categories')
-        .insert([{ name, is_visible, sort_order }]);
+        .insert([{ name, is_visible, sort_order, organization_id: organizationId }]);
       if (error) console.error('Error creating category:', error);
       else fetchCategories();
     }
@@ -232,7 +234,7 @@ const Products: React.FC = () => {
     const image_url = formData.get('image_url') as string;
     const is_producible = formData.get('is_producible') === 'on';
 
-    const productData = { name, type, category_id, price, base_cost, stock, min_stock, image_url, is_producible };
+    const productData = { name, type, category_id, price, base_cost, stock, min_stock, image_url, is_producible, organization_id: organizationId };
 
     // Validation: Recipe required for compound items
     if ((type === 'compuesto' || type === 'produccion') && recipeIngredients.length === 0) {
@@ -296,7 +298,8 @@ const Products: React.FC = () => {
       action: editingProduct ? 'update' : 'create',
       user_id: user?.id || 'unknown',
       old_value: editingProduct,
-      new_value: productData
+      new_value: productData,
+      organization_id: organizationId
     }]);
 
     fetchProducts();

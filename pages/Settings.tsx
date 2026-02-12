@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Save, RefreshCw, AlertCircle, Trash2, Lock, LayoutGrid, Map, CreditCard, List, Monitor, Store, Plus, Edit2, X } from 'lucide-react';
 import { supabase } from '../supabase';
 import { useAuth } from '../AuthContext';
+import { useOrganization } from '../OrganizationContext';
 
 interface Zone {
    id: string;
@@ -21,8 +22,8 @@ interface Table {
 interface OrderType {
    id: string;
    name: string;
-   ask_table: boolean;
-   prepay_required: boolean;
+   requires_table: boolean;
+   pay_before: boolean;
    is_active: boolean;
 }
 
@@ -46,6 +47,7 @@ interface AppSetting {
 
 const Settings: React.FC = () => {
    const { user } = useAuth();
+   const { organizationId } = useOrganization();
    const [activeTab, setActiveTab] = useState<'sucursal' | 'zonas' | 'pagos' | 'tipos' | 'terminales' | 'dev'>('sucursal');
    const [loading, setLoading] = useState(true);
    const [saving, setSaving] = useState(false);
@@ -120,7 +122,7 @@ const Settings: React.FC = () => {
             { key: 'store_info', value: { name: storeName, address: storeAddress, rif: storeRif } }
          ];
          for (const update of updates) {
-            const { error } = await supabase.from('app_settings').upsert(update, { onConflict: 'key' });
+            const { error } = await supabase.from('app_settings').upsert({ ...update, organization_id: organizationId }, { onConflict: 'key,organization_id' });
             if (error) throw error;
          }
          alert('Configuración guardada exitosamente');
@@ -144,7 +146,7 @@ const Settings: React.FC = () => {
 
    const handleSaveZone = async () => {
       if (!editingZone?.name) return alert("Nombre requerido");
-      const { error } = await supabase.from('zones').upsert(editingZone).select();
+      const { error } = await supabase.from('zones').upsert({ ...editingZone, organization_id: organizationId }).select();
       if (error) alert("Error guardando zona");
       else {
          setEditingZone(null);
@@ -163,9 +165,10 @@ const Settings: React.FC = () => {
       if (!editingTable?.name || !editingTable.zone_id) return alert("Datos incompletos");
       const { error } = await supabase.from('tables').upsert({
          ...editingTable,
-         status: 'available'
+         is_active: true,
+         organization_id: organizationId
       }).select();
-      if (error) alert("Error guardando mesa");
+      if (error) alert("Error guardando mesa: " + error.message);
       else {
          setEditingTable(null);
          fetchZones();
@@ -191,7 +194,15 @@ const Settings: React.FC = () => {
 
    const handleSaveOrderType = async () => {
       if (!newOrderType?.name) return alert("Nombre requerido");
-      await supabase.from('order_types').upsert({ ...newOrderType, is_active: true }).select();
+      const payload = {
+         name: newOrderType.name,
+         requires_table: newOrderType.requires_table || false,
+         pay_before: newOrderType.pay_before || false,
+         is_active: true,
+         organization_id: organizationId
+      };
+      const { error } = await supabase.from('order_types').insert(payload).select();
+      if (error) return alert("Error guardando tipo de pedido: " + error.message);
       setNewOrderType(null);
       fetchOrderTypes();
    };
@@ -209,7 +220,14 @@ const Settings: React.FC = () => {
 
    const handleSavePaymentMethod = async () => {
       if (!newPaymentMethod?.name) return alert("Nombre requerido");
-      await supabase.from('payment_methods').upsert({ ...newPaymentMethod, is_active: true }).select();
+      const payload = {
+         name: newPaymentMethod.name,
+         type: newPaymentMethod.type || 'efectivo',
+         is_active: true,
+         organization_id: organizationId
+      };
+      const { error } = await supabase.from('payment_methods').insert(payload).select();
+      if (error) return alert("Error guardando método de pago: " + error.message);
       setNewPaymentMethod(null);
       fetchPaymentMethods();
    };
@@ -227,7 +245,13 @@ const Settings: React.FC = () => {
 
    const handleSaveTerminal = async () => {
       if (!newTerminal?.name) return alert("Nombre requerido");
-      await supabase.from('terminals').upsert({ ...newTerminal, is_active: true }).select();
+      const payload = {
+         name: newTerminal.name,
+         is_active: true,
+         organization_id: organizationId
+      };
+      const { error } = await supabase.from('terminals').insert(payload).select();
+      if (error) return alert("Error guardando terminal: " + error.message);
       setNewTerminal(null);
       fetchTerminals();
    };
@@ -553,12 +577,12 @@ const Settings: React.FC = () => {
                               />
                               <select
                                  className="w-full border border-slate-300 rounded p-2"
-                                 value={newPaymentMethod.type || 'cash'}
+                                 value={newPaymentMethod.type || 'efectivo'}
                                  onChange={e => setNewPaymentMethod({ ...newPaymentMethod, type: e.target.value })}
                               >
-                                 <option value="cash">Efectivo</option>
-                                 <option value="card">Tarjeta / Débito</option>
-                                 <option value="transfer">Transferencia / Digital</option>
+                                 <option value="efectivo">💵 Efectivo</option>
+                                 <option value="digital">📱 Digital / Transferencia</option>
+                                 <option value="mixto">🔀 Mixto</option>
                               </select>
                               <div className="flex justify-end gap-2 mt-4">
                                  <button onClick={() => setNewPaymentMethod(null)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded">Cancelar</button>
@@ -599,13 +623,13 @@ const Settings: React.FC = () => {
                               <tr key={type.id} className="hover:bg-slate-50">
                                  <td className="p-4 font-bold text-slate-700">{type.name}</td>
                                  <td className="p-4 text-center">
-                                    <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${type.ask_table ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-400'}`}>
-                                       {type.ask_table ? 'SÍ' : 'NO'}
+                                    <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${type.requires_table ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-400'}`}>
+                                       {type.requires_table ? 'SÍ' : 'NO'}
                                     </span>
                                  </td>
                                  <td className="p-4 text-center">
-                                    <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${type.prepay_required ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-400'}`}>
-                                       {type.prepay_required ? 'SÍ' : 'NO'}
+                                    <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${type.pay_before ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-400'}`}>
+                                       {type.pay_before ? 'SÍ' : 'NO'}
                                     </span>
                                  </td>
                                  <td className="p-4">
@@ -644,16 +668,16 @@ const Settings: React.FC = () => {
                               <label className="flex items-center gap-3 p-3 border rounded bg-slate-50 cursor-pointer">
                                  <input
                                     type="checkbox"
-                                    checked={newOrderType.ask_table || false}
-                                    onChange={e => setNewOrderType({ ...newOrderType, ask_table: e.target.checked })}
+                                    checked={newOrderType.requires_table || false}
+                                    onChange={e => setNewOrderType({ ...newOrderType, requires_table: e.target.checked })}
                                  />
                                  <span className="text-sm">Preguntar Mesa (Dine-in)</span>
                               </label>
                               <label className="flex items-center gap-3 p-3 border rounded bg-slate-50 cursor-pointer">
                                  <input
                                     type="checkbox"
-                                    checked={newOrderType.prepay_required || false}
-                                    onChange={e => setNewOrderType({ ...newOrderType, prepay_required: e.target.checked })}
+                                    checked={newOrderType.pay_before || false}
+                                    onChange={e => setNewOrderType({ ...newOrderType, pay_before: e.target.checked })}
                                  />
                                  <span className="text-sm">Cobrar Antes (Fast Food)</span>
                               </label>

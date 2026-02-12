@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Search, Grid, List, Trash2, Plus, Minus, CreditCard, Banknote, Smartphone, ChefHat, User, Send, Save, Clock, X, AlertOctagon, ShoppingCart, CheckCircle, Monitor, Lock, Unlock } from 'lucide-react';
 import { Product, CartItem, ProductType, ModifierGroup, ModifierOption, PaymentMethod, OrderTypeConfig, CategoryConfig, TableConfig, TerminalConfig, OrderPayment } from '../types';
 import { supabase } from '../supabase';
+import { useOrganization } from '../OrganizationContext';
 
 // Mock Data - Updated to reflect strict rules logic
 // Mock Data for demo/transition
@@ -11,6 +12,7 @@ import { supabase } from '../supabase';
 const EMPLOYEES = ['Juan Doe', 'Ana Smith', 'Carlos Ruiz'];
 
 const POS: React.FC = () => {
+  const { organizationId } = useOrganization();
   const [selectedCategory, setSelectedCategory] = useState('Todo');
   const [categories, setCategories] = useState<CategoryConfig[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -332,7 +334,8 @@ const POS: React.FC = () => {
         status: 'pending', // Initial status for Kitchen
         subtotal: subtotal,
         tax: tax,
-        cash_register_id: activeCashRegisterId // Link to specific cash session
+        cash_register_id: activeCashRegisterId, // Link to specific cash session
+        organization_id: organizationId
       };
 
       const { data: newOrder, error: orderError } = await supabase
@@ -463,17 +466,17 @@ const POS: React.FC = () => {
         <div className="bg-white p-4 shadow-sm z-10">
           {/* ... (Header components same as before) ... */}
           <div className="flex gap-4 mb-4 overflow-x-auto pb-2 scrollbar-hide">
-                        <button
-                key="all"
-                onClick={() => setSelectedCategory('Todo')}
-                className={`px-4 py-2 rounded-full text-[10px] font-black uppercase whitespace-nowrap transition-all border-2 ${selectedCategory === 'Todo'
-                  ? 'bg-slate-800 text-white border-slate-800 shadow-lg scale-105'
-                  : 'bg-white text-slate-500 border-slate-100 hover:border-slate-200'
-                  }`}
-              >
-                Todo
-              </button>
-{categories.map((cat: CategoryConfig) => (
+            <button
+              key="all"
+              onClick={() => setSelectedCategory('Todo')}
+              className={`px-4 py-2 rounded-full text-[10px] font-black uppercase whitespace-nowrap transition-all border-2 ${selectedCategory === 'Todo'
+                ? 'bg-slate-800 text-white border-slate-800 shadow-lg scale-105'
+                : 'bg-white text-slate-500 border-slate-100 hover:border-slate-200'
+                }`}
+            >
+              Todo
+            </button>
+            {categories.map((cat: CategoryConfig) => (
               <button
                 key={cat.id}
                 onClick={() => setSelectedCategory(cat.name)}

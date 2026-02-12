@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
 import { useAuth } from '../AuthContext';
+import { useOrganization } from '../OrganizationContext';
 import { Supplier, SupplierProduct, PurchaseOrder, Product } from '../types';
 import { Truck, Plus, Search, Edit2, Trash2, Save, X, DollarSign, Archive, FileText, CheckCircle, Clock, AlertTriangle, ChevronRight, Calculator } from 'lucide-react';
 
 const Suppliers: React.FC = () => {
    const { user } = useAuth();
+   const { organizationId } = useOrganization();
    const [activeTab, setActiveTab] = useState<'proveedores' | 'catalogo' | 'ordenes'>('proveedores');
    const [suppliers, setSuppliers] = useState<Supplier[]>([]);
    const [products, setProducts] = useState<Product[]>([]); // For catalog linking
@@ -131,7 +133,8 @@ const Suppliers: React.FC = () => {
                      action: 'cost_update',
                      user_id: user?.id || 'unknown',
                      old_value: { base_cost: currentCost },
-                     new_value: { base_cost: newCost, source: 'purchase_order', order_id: selectedOrder.id }
+                     new_value: { base_cost: newCost, source: 'purchase_order', order_id: selectedOrder.id },
+                     organization_id: organizationId
                   });
                }
             }
@@ -139,7 +142,7 @@ const Suppliers: React.FC = () => {
 
          await supabase.from('purchase_orders').update({
             status: 'received'
-          }).eq('id', selectedOrder.id);
+         }).eq('id', selectedOrder.id);
 
          alert("Orden recibida exitosamente. Inventario actualizado.");
          setSelectedOrder(null);
@@ -167,7 +170,7 @@ const Suppliers: React.FC = () => {
       if (editingSupplier.id) {
          await supabase.from('suppliers').update(payload).eq('id', editingSupplier.id);
       } else {
-         await supabase.from('suppliers').insert(payload);
+         await supabase.from('suppliers').insert({ ...payload, organization_id: organizationId });
       }
       setEditingSupplier(null);
       fetchSuppliers();

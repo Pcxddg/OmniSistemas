@@ -3,6 +3,7 @@ import { DollarSign, CreditCard, Smartphone, CheckCircle, AlertTriangle, Save, C
 import { PaymentMethod } from '../types';
 
 import { supabase } from '../supabase';
+import { useOrganization } from '../OrganizationContext';
 
 const getMethodIcon = (type: string) => {
    switch (type) {
@@ -33,6 +34,7 @@ const CashRegister: React.FC = () => {
 
    // Cash Register State
    const [currentRegister, setCurrentRegister] = useState<any | null>(null); // Use proper type if available
+   const { organizationId } = useOrganization();
    const [openingAmountInput, setOpeningAmountInput] = useState('');
 
    useEffect(() => {
@@ -131,6 +133,22 @@ const CashRegister: React.FC = () => {
             });
             setSystemAmounts(totalsMap);
          }
+
+         // 4. If register is closed, load saved declared amounts from cash_register_counts
+         if (reg.status === 'closed') {
+            const { data: countsData } = await supabase
+               .from('cash_register_counts')
+               .select('payment_method_id, amount_declared')
+               .eq('cash_register_id', reg.id);
+
+            if (countsData && countsData.length > 0) {
+               const savedAmounts: Record<string, string> = {};
+               countsData.forEach((c: any) => {
+                  savedAmounts[c.payment_method_id] = String(c.amount_declared);
+               });
+               setDeclaredAmounts(savedAmounts);
+            }
+         }
       } else {
          setCurrentRegister(null);
          setSystemAmounts({});
@@ -195,7 +213,8 @@ const CashRegister: React.FC = () => {
          opening_amount: parseFloat(openingAmountInput),
          status: 'open',
          opening_time: new Date().toISOString(),
-         opened_by: user?.id
+         opened_by: user?.id,
+         organization_id: organizationId
       });
 
       if (error) {
@@ -204,10 +223,11 @@ const CashRegister: React.FC = () => {
          // Step 10.6: Audit Log for Open Register
          await supabase.from('audit_logs').insert([{
             entity: 'cash_register',
-            entity_id: 'new_session', // ideally we get ID from insert, but basic log is ok
+            entity_id: 'new_session',
             action: 'open_register',
             user_id: user?.id || 'unknown',
-            new_value: { opening_amount: parseFloat(openingAmountInput) }
+            new_value: { opening_amount: parseFloat(openingAmountInput) },
+            organization_id: organizationId
          }]);
 
          fetchData(); // Reload to see open state
@@ -277,7 +297,8 @@ const CashRegister: React.FC = () => {
                closing_amount: totalDeclared,
                notes: notes,
                system_totals: summary
-            }
+            },
+            organization_id: organizationId
          }]);
 
          alert("Caja cerrada correctamente.");
