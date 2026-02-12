@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Search, Filter, AlertTriangle, FileText, Settings, RefreshCw, ExternalLink, Eye, X, ArrowRight, ShoppingCart, Truck, Hammer, Package, Ban, TrendingUp, TrendingDown, DollarSign, Percent, ShieldCheck } from 'lucide-react';
 import { supabase } from '../supabase';
+import { useAuth } from '../AuthContext';
 import { calculateLineItemCost, calculateOrderTotalCost } from '../utils/financials';
 
 // Enhanced Log Structure
@@ -41,6 +42,7 @@ const getBadgeColor = (type: string) => {
 };
 
 const History: React.FC = () => {
+   const { user } = useAuth();
    const [events, setEvents] = useState<HistoryEvent[]>([]);
    const [loading, setLoading] = useState(true);
    const [selectedEvent, setSelectedEvent] = useState<HistoryEvent | null>(null);
@@ -57,8 +59,7 @@ const History: React.FC = () => {
          const { data: orders, error: orderError } = await supabase
             .from('orders')
             .select('*, order_items(*, products(name))')
-            .order('created_at', { ascending: false })
-            .limit(50);
+            .order('created_at', { ascending: false });
 
          if (orderError) throw orderError;
 
@@ -158,7 +159,7 @@ const History: React.FC = () => {
             .from('orders')
             .update({ status: 'cancelled', notes: 'Cancelado manualmente desde Historial' })
             .eq('id', order.id)
-            .eq('status', 'completed'); // Only cancel if still completed (atomic guard)
+            .neq('status', 'cancelled'); // Cancel any non-cancelled order (atomic guard)
 
          if (updateError) throw updateError;
 
@@ -181,8 +182,8 @@ const History: React.FC = () => {
             entity: 'order',
             entity_id: order.id,
             action: 'cancel',
-            user_id: 'unknown', // Ideally from context
-            old_value: { status: 'completed', total: order.total },
+            user_id: user?.id || 'unknown',
+            old_value: { status: currentOrder.status, total: order.total },
             new_value: { status: 'cancelled', reason: 'Cancelado manualmente desde Historial' }
          }]);
 

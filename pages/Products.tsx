@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Package, Folder, Tag, Plus, Search, Edit2, Trash2, X, Save, AlertCircle, ChefHat, Layers, Link as LinkIcon, DollarSign, ArrowRight, Layout, CheckCircle, Smartphone, CreditCard, ClipboardList, Grid, Banknote, List } from 'lucide-react';
 import { supabase } from '../supabase';
+import { useAuth } from '../AuthContext';
 import { Product, CategoryConfig, ProductType, Modifier } from '../types';
 
 const Products: React.FC = () => {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<'articles' | 'categories' | 'modifiers'>('articles');
 
   // --- CATEGORIES STATE ---
@@ -292,7 +294,7 @@ const Products: React.FC = () => {
       entity: 'product',
       entity_id: savedProductId,
       action: editingProduct ? 'update' : 'create',
-      user_id: 'unknown', // Ideally from context
+      user_id: user?.id || 'unknown',
       old_value: editingProduct,
       new_value: productData
     }]);

@@ -19,7 +19,7 @@ export const calculateOrderTotalCost = (items: any[]): number => {
 };
 
 export const calculateOrderProfit = (order: Order | any): number => {
-    const revenue = order.subtotal || (order.total / (1 + (order.tax_rate || 0.16))); // Fallback estimate
+    const revenue = order.subtotal || (order.total / (1 + (order.tax_rate || 0))); // Fallback estimate
     const cost = calculateOrderTotalCost(order.items || order.order_items || []);
     return revenue - cost;
 };

@@ -10,16 +10,6 @@ import { calculateOrderTotalCost } from '../utils/financials';
 
 const COLORS = ['#1e293b', '#334155', '#475569', '#64748b'];
 
-// Fallback mock data for charts while real history logic (Step 9.2) is implemented
-const dataSalesMock = [
-  { name: 'Lun', sales: 4000, margin: 2400 },
-  { name: 'Mar', sales: 3000, margin: 1800 },
-  { name: 'Mie', sales: 2000, margin: 1200 },
-  { name: 'Jue', sales: 2780, margin: 1600 },
-  { name: 'Vie', sales: 1890, margin: 1100 },
-  { name: 'Sab', sales: 5390, margin: 3200 },
-  { name: 'Dom', sales: 3490, margin: 2100 },
-];
 
 interface OrderItem {
   quantity: number;
@@ -61,6 +51,7 @@ const Dashboard: React.FC = () => {
     topItems: [] as { name: string, value: number, revenue: number }[], // Step 9.7: Updated structure
     topEmployees: [] as { name: string, sales: number, count: number }[], // Step 9.8
     topTerminals: [] as { name: string, sales: number, count: number }[],  // Step 9.9
+    salesChartData: [] as { name: string, sales: number, costos: number }[],
     topCustomers: [
       { name: 'Maria Perez', visits: 12, spent: 450 },
       { name: 'Carlos Ruiz', visits: 10, spent: 380 },
@@ -208,6 +199,22 @@ const Dashboard: React.FC = () => {
         .sort((a, b) => b.sales - a.sales)
         .slice(0, 5);
 
+            // Build Sales Chart Data from real orders
+      const dailyStats: Record<string, { sales: number, cost: number }> = {};
+      orders?.forEach(order => {
+        const dateKey = new Date(order.created_at).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' });
+        if (!dailyStats[dateKey]) dailyStats[dateKey] = { sales: 0, cost: 0 };
+        const orderPayments = order.order_payments?.reduce((s: number, p: any) => s + Number(p.amount), 0) || 0;
+        const mappedCostItems = order.order_items?.map((item: any) => ({
+          ...item,
+          unit_cost: item.unit_cost || item.products?.cost_price || 0
+        })) || [];
+        dailyStats[dateKey].sales += orderPayments;
+        dailyStats[dateKey].cost += calculateOrderTotalCost(mappedCostItems);
+      });
+      const salesChartData = Object.entries(dailyStats)
+        .map(([name, d]) => ({ name, sales: Math.round(d.sales * 100) / 100, costos: Math.round(d.cost * 100) / 100 }));
+
       setStats(prev => ({
         ...prev,
         grossIncome: totalGross,
@@ -217,7 +224,8 @@ const Dashboard: React.FC = () => {
         averageMargin: Math.round(margin), // Step 9.6: This is Average Margin
         topItems: sortedItems,
         topEmployees: sortedEmployees,
-        topTerminals: sortedTerminals
+        topTerminals: sortedTerminals,
+        salesChartData: salesChartData
       }));
 
     } catch (error) {
@@ -340,7 +348,7 @@ const Dashboard: React.FC = () => {
           </h3>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={dataSalesMock}>
+              <AreaChart data={stats.salesChartData}>
                 <defs>
                   <linearGradient id="colorSales" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#1e293b" stopOpacity={0.1} />
@@ -355,7 +363,7 @@ const Dashboard: React.FC = () => {
                   cursor={{ stroke: '#cbd5e1', strokeWidth: 1 }}
                 />
                 <Area type="monotone" dataKey="sales" name="Ventas" stroke="#1e293b" strokeWidth={4} fillOpacity={1} fill="url(#colorSales)" />
-                <Area type="monotone" dataKey="margin" name="Ganancia" stroke="#94a3b8" strokeWidth={2} strokeDasharray="6 6" fill="none" />
+                <Area type="monotone" dataKey="costos" name="Costos" stroke="#94a3b8" strokeWidth={2} strokeDasharray="6 6" fill="none" />
               </AreaChart>
             </ResponsiveContainer>
           </div>

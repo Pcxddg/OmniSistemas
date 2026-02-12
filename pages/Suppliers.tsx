@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabase';
+import { useAuth } from '../AuthContext';
 import { Supplier, SupplierProduct, PurchaseOrder, Product } from '../types';
 import { Truck, Plus, Search, Edit2, Trash2, Save, X, DollarSign, Archive, FileText, CheckCircle, Clock, AlertTriangle, ChevronRight, Calculator } from 'lucide-react';
 
 const Suppliers: React.FC = () => {
+   const { user } = useAuth();
    const [activeTab, setActiveTab] = useState<'proveedores' | 'catalogo' | 'ordenes'>('proveedores');
    const [suppliers, setSuppliers] = useState<Supplier[]>([]);
    const [products, setProducts] = useState<Product[]>([]); // For catalog linking
@@ -119,7 +121,7 @@ const Suppliers: React.FC = () => {
                   type: 'entrada',
                   quantity: incomingQty,
                   reason: `Recepción Orden #${selectedOrder.id.slice(0, 8)}`,
-                  user_id: 'current_user'
+                  user_id: user?.id || 'unknown'
                });
 
                if (Math.abs(newCost - currentCost) > 0.01) {
@@ -127,7 +129,7 @@ const Suppliers: React.FC = () => {
                      entity: 'product',
                      entity_id: item.product_id,
                      action: 'cost_update',
-                     user_id: 'current_user',
+                     user_id: user?.id || 'unknown',
                      old_value: { base_cost: currentCost },
                      new_value: { base_cost: newCost, source: 'purchase_order', order_id: selectedOrder.id }
                   });
@@ -136,9 +138,8 @@ const Suppliers: React.FC = () => {
          }
 
          await supabase.from('purchase_orders').update({
-            status: 'received',
-            expected_date: new Date().toISOString()
-         }).eq('id', selectedOrder.id);
+            status: 'received'
+          }).eq('id', selectedOrder.id);
 
          alert("Orden recibida exitosamente. Inventario actualizado.");
          setSelectedOrder(null);
@@ -217,7 +218,7 @@ const Suppliers: React.FC = () => {
          status: 'draft',
          notes: editingOrder.notes,
          total_estimated: orderItems.reduce((sum, item) => sum + (item.quantity * item.unit_cost), 0),
-         user_id: 'current_user'
+         user_id: user?.id || 'unknown'
       }).select().single();
 
       if (error || !order) return alert("Error creando orden");
@@ -313,7 +314,7 @@ const Suppliers: React.FC = () => {
                         </tr>
                      ))}
                      {suppliers.length === 0 && (
-                        <tr><td colSpan={5} className="p-8 text-center text-slate-400 italic">No hay proveedores registrados</td></tr>
+                        <tr><td colSpan={6} className="p-8 text-center text-slate-400 italic">No hay proveedores registrados</td></tr>
                      )}
                   </tbody>
                </table>
@@ -441,7 +442,7 @@ const Suppliers: React.FC = () => {
                         </tr>
                      ))}
                      {!orders.length && (
-                        <tr><td colSpan={5} className="p-8 text-center text-slate-400 italic">No hay órdenes registradas.</td></tr>
+                        <tr><td colSpan={6} className="p-8 text-center text-slate-400 italic">No hay órdenes registradas.</td></tr>
                      )}
                   </tbody>
                </table>

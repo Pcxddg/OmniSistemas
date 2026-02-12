@@ -51,7 +51,7 @@ const Kitchen: React.FC = () => {
             tables (name),
             order_types (name)
         `)
-        .in('status', ['pending', 'active', 'ready']) // Updated to match likely statuses
+        .in('status', ['pending']) // Updated to match likely statuses
         .order('created_at', { ascending: true }); // Oldest first
 
       if (error) throw error;

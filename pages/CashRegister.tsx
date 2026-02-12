@@ -41,18 +41,9 @@ const CashRegister: React.FC = () => {
 
    // STEP 8.3: Calculate theoretical system totals by method category
    // STEP 8.4: Recalculate component amounts based on employee filter
-   const systemAmounts = useMemo(() => {
-      const filtered = selectedEmployeeFilter === 'Global'
-         ? rawPayments
-         : rawPayments.filter(p => p.orders.user_id === selectedEmployeeFilter);
-
-      const totals: Record<string, number> = {};
-      filtered.forEach((p: any) => {
-         const methodId = p.payment_method_id;
-         totals[methodId] = (totals[methodId] || 0) + Number(p.amount);
-      });
-      return totals;
-   }, [rawPayments, selectedEmployeeFilter]);
+   // STEP 8.3: Calculate theoretical system totals by method category
+   // Refactored to use RPC data instead of client-side calculation
+   const [systemAmounts, setSystemAmounts] = useState<Record<string, number>>({});
 
    // Dynamically list employees who have sales in this session
    const availableEmployees = useMemo(() => {
@@ -61,14 +52,12 @@ const CashRegister: React.FC = () => {
    }, [rawPayments]);
 
    // Step 8.7: Global totals for audit (ignores employee filter)
+   // Step 8.7: Global totals for audit (ignores employee filter)
    const globalSystemAmounts = useMemo(() => {
-      const totals: Record<string, number> = {};
-      rawPayments.forEach((p: any) => {
-         const methodId = p.payment_method_id;
-         totals[methodId] = (totals[methodId] || 0) + Number(p.amount);
-      });
-      return totals;
-   }, [rawPayments]);
+      // Since we now use RPC which returns global totals for the register, 
+      // systemAmounts IS the global system amounts. 
+      return systemAmounts;
+   }, [systemAmounts]);
 
    const summary = useMemo(() => {
       let cash = 0;
@@ -103,6 +92,7 @@ const CashRegister: React.FC = () => {
       const { data: registers } = await supabase
          .from('cash_registers')
          .select('*')
+         .not('opening_time', 'is', null) // Filter out reset/wiped registers
          .order('opening_time', { ascending: false })
          .limit(1);
 
@@ -119,18 +109,31 @@ const CashRegister: React.FC = () => {
 
          setPaymentMethods(methods || []);
 
-         // 3. Fetch totals for THIS specific session
-         const { data: payments, error } = await supabase
+         // 3a. Fetch raw payments for employee breakdown
+         const { data: paymentsData } = await supabase
             .from('order_payments')
-            .select('payment_method_id, amount, orders!inner(status, cash_register_id, user_id)')
+            .select('*, orders!inner(user_id, status, cash_register_id)')
             .eq('orders.cash_register_id', reg.id)
             .neq('orders.status', 'cancelled');
+         if (paymentsData) setRawPayments(paymentsData);
 
-         if (!error && payments) {
-            setRawPayments(payments);
+         // 3. Fetch totals via RPC for ACCURACY
+         const { data: totalsData, error: rpcError } = await supabase
+            .rpc('get_cash_register_totals', { p_register_id: reg.id });
+
+         if (rpcError) {
+            console.error('RPC Error:', rpcError);
+         } else if (totalsData) {
+            console.log('RPC Totals:', totalsData);
+            const totalsMap: Record<string, number> = {};
+            totalsData.forEach((t: any) => {
+               totalsMap[t.payment_method_id] = Number(t.total_amount);
+            });
+            setSystemAmounts(totalsMap);
          }
       } else {
          setCurrentRegister(null);
+         setSystemAmounts({});
       }
 
       setIsLoading(false);
@@ -186,11 +189,13 @@ const CashRegister: React.FC = () => {
       if (!openingAmountInput) return;
       setIsSubmitting(true);
 
+      const { data: { user } } = await supabase.auth.getUser();
+
       const { error } = await supabase.from('cash_registers').insert({
          opening_amount: parseFloat(openingAmountInput),
          status: 'open',
-         opening_time: new Date().toISOString()
-         // user_id handled by DB default or RLS commonly, or pass explicitly if needed
+         opening_time: new Date().toISOString(),
+         opened_by: user?.id
       });
 
       if (error) {
@@ -201,7 +206,7 @@ const CashRegister: React.FC = () => {
             entity: 'cash_register',
             entity_id: 'new_session', // ideally we get ID from insert, but basic log is ok
             action: 'open_register',
-            user_id: 'unknown',
+            user_id: user?.id || 'unknown',
             new_value: { opening_amount: parseFloat(openingAmountInput) }
          }]);
 
@@ -245,6 +250,8 @@ const CashRegister: React.FC = () => {
          // Let's warn but proceed with updating the main record to avoid getting stuck if breakdown fails.
       }
 
+      const { data: { user } } = await supabase.auth.getUser();
+
       // 2. Update Main Register Record
       const { error } = await supabase
          .from('cash_registers')
@@ -252,7 +259,8 @@ const CashRegister: React.FC = () => {
             closing_time: new Date().toISOString(),
             status: 'closed',
             closing_amount: totalDeclared,
-            notes: notes
+            notes: notes,
+            closed_by: user?.id
          })
          .eq('id', currentRegister.id);
 
@@ -264,7 +272,7 @@ const CashRegister: React.FC = () => {
             entity: 'cash_register',
             entity_id: currentRegister.id,
             action: 'close_register',
-            user_id: 'unknown',
+            user_id: user?.id || 'unknown',
             new_value: {
                closing_amount: totalDeclared,
                notes: notes,
@@ -358,6 +366,12 @@ const CashRegister: React.FC = () => {
                   <Calculator size={18} className="text-brand-600" />
                   <span className="text-sm font-bold text-slate-600">
                      Abierto: <span className="text-slate-900">{new Date(currentRegister.opening_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </span>
+               </div>
+               <div className="px-4 py-2 bg-emerald-50 border border-emerald-200 rounded-lg shadow-sm flex items-center gap-2">
+                  <DollarSign size={18} className="text-emerald-600" />
+                  <span className="text-sm font-bold text-emerald-700">
+                     Base: <span className="text-emerald-900">${Number(currentRegister.opening_amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
                   </span>
                </div>
             </div>
@@ -562,6 +576,8 @@ const CashRegister: React.FC = () => {
                </button>
             )}
          </div>
+
+
       </div>
    );
 };

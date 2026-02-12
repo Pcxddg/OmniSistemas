@@ -463,7 +463,17 @@ const POS: React.FC = () => {
         <div className="bg-white p-4 shadow-sm z-10">
           {/* ... (Header components same as before) ... */}
           <div className="flex gap-4 mb-4 overflow-x-auto pb-2 scrollbar-hide">
-            {categories.map((cat: CategoryConfig) => (
+                        <button
+                key="all"
+                onClick={() => setSelectedCategory('Todo')}
+                className={`px-4 py-2 rounded-full text-[10px] font-black uppercase whitespace-nowrap transition-all border-2 ${selectedCategory === 'Todo'
+                  ? 'bg-slate-800 text-white border-slate-800 shadow-lg scale-105'
+                  : 'bg-white text-slate-500 border-slate-100 hover:border-slate-200'
+                  }`}
+              >
+                Todo
+              </button>
+{categories.map((cat: CategoryConfig) => (
               <button
                 key={cat.id}
                 onClick={() => setSelectedCategory(cat.name)}

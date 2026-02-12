@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Save, RefreshCw, AlertCircle, Trash2, Lock, LayoutGrid, Map, CreditCard, List, Monitor, Store, Plus, Edit2, X } from 'lucide-react';
 import { supabase } from '../supabase';
+import { useAuth } from '../AuthContext';
 
 interface Zone {
    id: string;
@@ -44,6 +45,7 @@ interface AppSetting {
 }
 
 const Settings: React.FC = () => {
+   const { user } = useAuth();
    const [activeTab, setActiveTab] = useState<'sucursal' | 'zonas' | 'pagos' | 'tipos' | 'terminales' | 'dev'>('sucursal');
    const [loading, setLoading] = useState(true);
    const [saving, setSaving] = useState(false);
@@ -233,7 +235,7 @@ const Settings: React.FC = () => {
    // --- DEV TOOL ---
    const handleWipeData = async () => {
       const password = prompt("⚠️ ZONA DE PELIGRO ⚠️\n\nEsta acción eliminará TODOS los productos, ventas, inventario y registros.\n\nIngrese la contraseña de desarrollador para confirmar:");
-      if (password !== "1212") {
+      if (!password || password !== user?.email) {
          if (password) alert("Contraseña incorrecta");
          return;
       }
